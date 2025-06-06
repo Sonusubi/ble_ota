@@ -773,13 +773,16 @@ class _HomePageState extends State<HomePage> {
                     bool isSelected = selectedDevice?.remoteId == result.device.remoteId;
                     
                     return Card(
+                      margin: const EdgeInsets.only(bottom: 8.0),
                       elevation: isSelected ? 4 : 1,
                       child: Padding(
-                        padding: const EdgeInsets.all(8.0),
+                        padding: const EdgeInsets.all(12.0),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             ListTile(
+                              contentPadding: EdgeInsets.zero,
                               leading: Icon(
                                 Icons.bluetooth,
                                 color: isSelected ? Theme.of(context).primaryColor : null,
@@ -797,10 +800,12 @@ class _HomePageState extends State<HomePage> {
                                 ],
                               ),
                             ),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.end,
+                            SizedBox(
+                              width: double.infinity,
+                              child: Wrap(
+                                spacing: 8.0,
+                                runSpacing: 8.0,
+                                alignment: WrapAlignment.end,
                                 children: [
                                   ElevatedButton.icon(
                                     onPressed: () => connectToDevice(result.device),
