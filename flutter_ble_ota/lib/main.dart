@@ -85,8 +85,25 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'BonicBot OTA Update',
       theme: ThemeData(
-        primarySwatch: Colors.blue,
         useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF6750A4),
+          brightness: Brightness.dark,
+        ),
+        cardTheme: CardTheme(
+          elevation: 4,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        ),
       ),
       home: const HomePage(),
     );
@@ -690,8 +707,18 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.background,
       appBar: AppBar(
-        title: const Text('BonicBot OTA Update'),
+        title: Row(
+          children: [
+            Icon(
+              Icons.memory,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            const SizedBox(width: 12),
+            const Text('BonicBot OTA Update'),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
@@ -699,151 +726,253 @@ class _HomePageState extends State<HomePage> {
             tooltip: 'Check Permissions',
           ),
         ],
+        backgroundColor: Theme.of(context).colorScheme.surface.withOpacity(0.8),
+        elevation: 0,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Row(
-                  children: [
-                    const Icon(Icons.info_outline),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Text(
-                        status,
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Theme.of(context).colorScheme.surface,
+              Theme.of(context).colorScheme.background,
+            ],
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            children: [
+              // Status Card
+              Card(
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Theme.of(context).colorScheme.primaryContainer.withOpacity(0.5),
+                        Theme.of(context).colorScheme.primaryContainer.withOpacity(0.2),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            if (!_permissionsGranted)
-              ElevatedButton.icon(
-                onPressed: _checkPermissions,
-                icon: const Icon(Icons.security),
-                label: const Text('Grant Permissions'),
-              ),
-            if (_permissionsGranted) ...[
-              if (uploadProgress > 0)
-                Column(
-                  children: [
-                    LinearProgressIndicator(value: uploadProgress),
-                    const SizedBox(height: 8),
-                    Text(
-                      '${(uploadProgress * 100).toStringAsFixed(1)}%',
-                      style: Theme.of(context).textTheme.bodyLarge,
-                    ),
-                  ],
-                ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: isScanning ? null : startScan,
-                      icon: const Icon(Icons.bluetooth_searching),
-                      label: Text(isScanning ? 'Scanning...' : 'Scan for Devices'),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.info_outline,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Text(
+                            status,
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  if (selectedDevice != null) ...[
-                    const SizedBox(width: 8),
-                    ElevatedButton.icon(
-                      onPressed: showReleasesDialog,
-                      icon: const Icon(Icons.system_update),
-                      label: const Text('Firmware Releases'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                        foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 16),
-              Expanded(
-                child: ListView.builder(
-                  itemCount: scanResults.length,
-                  itemBuilder: (context, index) {
-                    ScanResult result = scanResults[index];
-                    bool isSelected = selectedDevice?.remoteId == result.device.remoteId;
-                    
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 8.0),
-                      elevation: isSelected ? 4 : 1,
-                      child: Padding(
-                        padding: const EdgeInsets.all(12.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              leading: Icon(
-                                Icons.bluetooth,
-                                color: isSelected ? Theme.of(context).primaryColor : null,
-                              ),
-                              title: Text(_formatDeviceName(result.device)),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text('Signal: ${result.rssi} dBm'),
-                                  if (isSelected && currentVersion != "0.0.0")
-                                    Text(
-                                      'Firmware: $currentVersion',
-                                      style: const TextStyle(fontWeight: FontWeight.bold),
-                                    ),
-                                ],
-                              ),
-                            ),
-                            SizedBox(
-                              width: double.infinity,
-                              child: Wrap(
-                                spacing: 8.0,
-                                runSpacing: 8.0,
-                                alignment: WrapAlignment.end,
-                                children: [
-                                  ElevatedButton.icon(
-                                    onPressed: () => connectToDevice(result.device),
-                                    icon: Icon(isSelected ? Icons.link : Icons.link_outlined),
-                                    label: Text(isSelected ? 'Connected' : 'Connect'),
-                                  ),
-                                  if (isSelected) ...[
-                                    const SizedBox(width: 8),
-                                    ElevatedButton.icon(
-                                      onPressed: checkFirmwareVersion,
-                                      icon: const Icon(Icons.system_update),
-                                      label: const Text('Check Version'),
-                                    ),
-                                    if (updateAvailable) ...[
-                                      const SizedBox(width: 8),
-                                      ElevatedButton.icon(
-                                        onPressed: downloadAndUploadFirmware,
-                                        icon: const Icon(Icons.download),
-                                        label: const Text('Update'),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Theme.of(context).colorScheme.secondary,
-                                          foregroundColor: Theme.of(context).colorScheme.onSecondary,
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
                 ),
               ),
+              const SizedBox(height: 16),
+              if (!_permissionsGranted)
+                ElevatedButton.icon(
+                  onPressed: _checkPermissions,
+                  icon: const Icon(Icons.security),
+                  label: const Text('Grant Permissions'),
+                ),
+              if (_permissionsGranted) ...[
+                if (uploadProgress > 0)
+                  Column(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: LinearProgressIndicator(
+                          value: uploadProgress,
+                          minHeight: 8,
+                          backgroundColor: Theme.of(context).colorScheme.surfaceVariant,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '${(uploadProgress * 100).toStringAsFixed(1)}%',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: isScanning ? null : startScan,
+                        icon: const Icon(Icons.bluetooth_searching),
+                        label: Text(isScanning ? 'Scanning...' : 'Scan for Devices'),
+                      ),
+                    ),
+                    if (selectedDevice != null) ...[
+                      const SizedBox(width: 8),
+                      ElevatedButton.icon(
+                        onPressed: showReleasesDialog,
+                        icon: const Icon(Icons.system_update),
+                        label: const Text('Firmware Releases'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
+                          foregroundColor: Theme.of(context).colorScheme.onSecondaryContainer,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: scanResults.length,
+                    itemBuilder: (context, index) {
+                      ScanResult result = scanResults[index];
+                      bool isSelected = selectedDevice?.remoteId == result.device.remoteId;
+                      
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 8.0),
+                        elevation: isSelected ? 4 : 1,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: isSelected ? LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Theme.of(context).colorScheme.primaryContainer.withOpacity(0.5),
+                                Theme.of(context).colorScheme.primaryContainer.withOpacity(0.2),
+                              ],
+                            ) : null,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: (isSelected 
+                                          ? Theme.of(context).colorScheme.primary
+                                          : Theme.of(context).colorScheme.surfaceVariant)
+                                          .withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Icon(
+                                        Icons.bluetooth,
+                                        color: isSelected 
+                                          ? Theme.of(context).colorScheme.primary
+                                          : Theme.of(context).colorScheme.onSurfaceVariant,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            _formatDeviceName(result.device),
+                                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            'Signal: ${result.rssi} dBm',
+                                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                            ),
+                                          ),
+                                          if (isSelected && currentVersion != "0.0.0")
+                                            Text(
+                                              'Firmware: $currentVersion',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                color: Theme.of(context).colorScheme.primary,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: Wrap(
+                                    spacing: 8.0,
+                                    runSpacing: 8.0,
+                                    alignment: WrapAlignment.end,
+                                    children: [
+                                      ElevatedButton.icon(
+                                        onPressed: () => connectToDevice(result.device),
+                                        icon: Icon(isSelected ? Icons.link : Icons.link_outlined),
+                                        label: Text(isSelected ? 'Connected' : 'Connect'),
+                                        style: isSelected ? ElevatedButton.styleFrom(
+                                          backgroundColor: Theme.of(context).colorScheme.primary,
+                                          foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                                        ) : null,
+                                      ),
+                                      if (isSelected) ...[
+                                        ElevatedButton.icon(
+                                          onPressed: checkFirmwareVersion,
+                                          icon: const Icon(Icons.system_update),
+                                          label: const Text('Check Version'),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
+                                            foregroundColor: Theme.of(context).colorScheme.onSecondaryContainer,
+                                          ),
+                                        ),
+                                        if (updateAvailable)
+                                          ElevatedButton.icon(
+                                            onPressed: downloadAndUploadFirmware,
+                                            icon: const Icon(Icons.download),
+                                            label: const Text('Update'),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: Theme.of(context).colorScheme.tertiaryContainer,
+                                              foregroundColor: Theme.of(context).colorScheme.onTertiaryContainer,
+                                            ),
+                                          ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
