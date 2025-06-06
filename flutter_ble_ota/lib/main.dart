@@ -6,6 +6,70 @@ import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as path;
+import 'package:version/version.dart';
+
+// Constants for GitHub
+const String GITHUB_OWNER = "Sonusubi"; // Your GitHub username
+const String GITHUB_REPO = "ble_ota";    // Your repo name
+const String GITHUB_API_URL = "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/releases/latest";
+const String GITHUB_API_RELEASES_URL = "https://api.github.com/repos/$GITHUB_OWNER/$GITHUB_REPO/releases";
+
+class Release {
+  final String version;
+  final String name;
+  final String body;
+  final String firmwareUrl;
+  final DateTime publishedAt;
+
+  Release({
+    required this.version,
+    required this.name,
+    required this.body,
+    required this.firmwareUrl,
+    required this.publishedAt,
+  });
+
+  factory Release.fromJson(Map<String, dynamic> json) {
+    String? firmwareUrl;
+    List<dynamic> assets = json['assets'];
+    
+    // First try to find the exact mainPCB.bin file
+    for (var asset in assets) {
+      if (asset['name'].toString() == 'mainPCB.bin') {
+        firmwareUrl = asset['browser_download_url'];
+        break;
+      }
+    }
+    
+    // If exact match not found, try any .bin file
+    if (firmwareUrl == null) {
+      for (var asset in assets) {
+        if (asset['name'].toString().endsWith('.bin')) {
+          firmwareUrl = asset['browser_download_url'];
+          break;
+        }
+      }
+    }
+    
+    // If still no firmware found, throw a more descriptive error
+    if (firmwareUrl == null) {
+      throw Exception(
+        'No firmware file (.bin) found in release ${json['tag_name']}.\n'
+        'Available files: ${assets.map((a) => a['name']).join(', ')}'
+      );
+    }
+
+    return Release(
+      version: json['tag_name'].toString().replaceAll('v', ''),
+      name: json['name'] ?? 'Release ${json['tag_name']}',
+      body: json['body'] ?? 'No description available',
+      firmwareUrl: firmwareUrl,
+      publishedAt: DateTime.parse(json['published_at']),
+    );
+  }
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,7 +83,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'ESP32 BLE OTA',
+      title: 'BonicBot OTA Update',
       theme: ThemeData(
         primarySwatch: Colors.blue,
         useMaterial3: true,
@@ -46,9 +110,16 @@ class _HomePageState extends State<HomePage> {
 
   final String SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
   final String OTA_CHARACTERISTIC = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
+  final String VERSION_CHARACTERISTIC = "beb5483e-36e1-4688-b7f5-ea07361b26a9";
+
+  String currentVersion = "0.0.0";
+  String latestVersion = "0.0.0";
+  bool updateAvailable = false;
+  String? firmwareUrl;
 
   StreamSubscription<List<ScanResult>>? _scanSubscription;
   StreamSubscription<BluetoothAdapterState>? _adapterStateSubscription;
+  List<Release> availableReleases = [];
 
   void _log(String message) {
     developer.log(message, name: 'BLE_OTA');
@@ -353,54 +424,192 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> uploadFirmware() async {
+  Future<void> checkFirmwareVersion() async {
     if (selectedDevice == null) {
       _log('No device selected');
-      setState(() {
-        status = 'No device selected';
-      });
       return;
     }
 
     try {
-      _log('Opening file picker');
-      final XTypeGroup typeGroup = XTypeGroup(
-        label: 'Binary files',
-        extensions: ['bin'],
-      );
-
-      final XFile? file = await openFile(acceptedTypeGroups: [typeGroup]);
-      if (file == null) {
-        _log('No file selected');
-        return;
-      }
-
-      _log('Reading file: ${file.path}');
-      List<int> firmware = await file.readAsBytes();
-      _log('File size: ${firmware.length} bytes');
-      
       _log('Discovering services');
       List<BluetoothService> services = await selectedDevice!.discoverServices();
-      _log('Found ${services.length} services');
-
-      _log('Looking for OTA service');
+      
       BluetoothService otaService = services.firstWhere(
         (s) => s.uuid.toString() == SERVICE_UUID,
-        orElse: () {
-          throw Exception('OTA service not found');
-        },
       );
-      _log('Found OTA service');
 
-      _log('Looking for OTA characteristic');
+      BluetoothCharacteristic versionCharacteristic = otaService.characteristics
+          .firstWhere((c) => c.uuid.toString() == VERSION_CHARACTERISTIC);
+
+      List<int> value = await versionCharacteristic.read();
+      currentVersion = utf8.decode(value);
+      _log('Current firmware version: $currentVersion');
+
+      await checkGitHubRelease();
+    } catch (e) {
+      _log('Error checking firmware version: $e');
+    }
+  }
+
+  Future<void> checkGitHubRelease() async {
+    try {
+      _log('Checking GitHub for latest release');
+      final response = await http.get(
+        Uri.parse(GITHUB_API_URL),
+        headers: {'Accept': 'application/vnd.github.v3+json'},
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        latestVersion = data['tag_name'].toString().replaceAll('v', '');
+        _log('Latest version on GitHub: $latestVersion');
+
+        // Find the .bin asset for mainPCB
+        List<dynamic> assets = data['assets'];
+        for (var asset in assets) {
+          if (asset['name'].toString().contains('mainPCB') && 
+              asset['name'].toString().endsWith('.bin')) {
+            firmwareUrl = asset['browser_download_url'];
+            break;
+          }
+        }
+
+        // Compare versions
+        try {
+          Version current = Version.parse(currentVersion);
+          Version latest = Version.parse(latestVersion);
+          updateAvailable = latest > current;
+
+          setState(() {
+            status = updateAvailable 
+                ? 'Update available: $currentVersion → $latestVersion'
+                : 'Firmware is up to date ($currentVersion)';
+          });
+        } catch (e) {
+          _log('Error parsing version numbers: $e');
+        }
+      } else {
+        _log('Failed to check GitHub release: ${response.statusCode}');
+      }
+    } catch (e) {
+      _log('Error checking GitHub release: $e');
+    }
+  }
+
+  Future<void> showReleasesDialog() async {
+    if (selectedDevice == null) {
+      _log('No device selected');
+      return;
+    }
+
+    try {
+      _log('Fetching GitHub releases');
+      final response = await http.get(
+        Uri.parse(GITHUB_API_RELEASES_URL),
+        headers: {'Accept': 'application/vnd.github.v3+json'},
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        setState(() {
+          availableReleases = data.map((release) => Release.fromJson(release)).toList();
+        });
+
+        if (!mounted) return;
+
+        await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Available Firmware Versions'),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: availableReleases.length,
+                itemBuilder: (context, index) {
+                  final release = availableReleases[index];
+                  return Card(
+                    child: ListTile(
+                      title: Text('Version ${release.version}'),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(release.name),
+                          Text(
+                            'Released: ${release.publishedAt.toString().split('.')[0]}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                      trailing: ElevatedButton.icon(
+                        onPressed: () async {
+                          Navigator.of(context).pop();
+                          await downloadAndUploadFirmware(release.firmwareUrl);
+                        },
+                        icon: const Icon(Icons.system_update),
+                        label: const Text('Flash'),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+        );
+      } else {
+        _log('Failed to fetch releases: ${response.statusCode}');
+      }
+    } catch (e) {
+      _log('Error fetching releases: $e');
+    }
+  }
+
+  Future<void> downloadAndUploadFirmware([String? specificUrl]) async {
+    final url = specificUrl ?? firmwareUrl;
+    if (url == null) {
+      _log('No firmware URL available');
+      return;
+    }
+
+    try {
+      _log('Downloading firmware from GitHub');
+      final response = await http.get(Uri.parse(url));
+      
+      if (response.statusCode == 200) {
+        List<int> firmware = response.bodyBytes;
+        _log('Downloaded firmware: ${firmware.length} bytes');
+        
+        await performOtaUpdate(firmware);
+      } else {
+        _log('Failed to download firmware: ${response.statusCode}');
+      }
+    } catch (e) {
+      _log('Error downloading firmware: $e');
+    }
+  }
+
+  Future<void> performOtaUpdate(List<int> firmware) async {
+    if (selectedDevice == null) {
+      _log('No device selected');
+      return;
+    }
+
+    try {
+      _log('Discovering services');
+      List<BluetoothService> services = await selectedDevice!.discoverServices();
+      
+      BluetoothService otaService = services.firstWhere(
+        (s) => s.uuid.toString() == SERVICE_UUID,
+      );
+
       BluetoothCharacteristic otaCharacteristic = otaService.characteristics
-          .firstWhere(
-            (c) => c.uuid.toString() == OTA_CHARACTERISTIC,
-            orElse: () {
-              throw Exception('OTA characteristic not found');
-            },
-          );
-      _log('Found OTA characteristic');
+          .firstWhere((c) => c.uuid.toString() == OTA_CHARACTERISTIC);
 
       // Send firmware size first
       _log('Sending firmware size');
@@ -408,7 +617,7 @@ class _HomePageState extends State<HomePage> {
       await otaCharacteristic.write(utf8.encode(jsonEncode(sizeData)));
 
       // Send firmware in chunks
-      int chunkSize = 244;
+      int chunkSize = 500;
       int sent = 0;
 
       while (sent < firmware.length) {
@@ -417,7 +626,6 @@ class _HomePageState extends State<HomePage> {
             : sent + chunkSize;
         List<int> chunk = firmware.sublist(sent, end);
         
-        // Add delay between chunks to prevent buffer overflow
         await otaCharacteristic.write(chunk, withoutResponse: true);
         await Future.delayed(const Duration(milliseconds: 10));
         
@@ -427,7 +635,6 @@ class _HomePageState extends State<HomePage> {
           uploadProgress = sent / firmware.length;
           status = 'Uploading: ${(uploadProgress * 100).toStringAsFixed(1)}%';
         });
-        _log('Uploaded ${(uploadProgress * 100).toStringAsFixed(1)}%');
       }
 
       _log('Upload complete');
@@ -443,11 +650,48 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> selectAndUploadFirmware() async {
+    if (selectedDevice == null) {
+      _log('No device selected');
+      return;
+    }
+
+    try {
+      final XTypeGroup typeGroup = XTypeGroup(
+        label: 'Firmware Files',
+        extensions: ['bin'],
+      );
+
+      final XFile? file = await openFile(acceptedTypeGroups: [typeGroup]);
+      if (file == null) {
+        _log('No file selected');
+        return;
+      }
+
+      _log('Reading firmware file: ${path.basename(file.path)}');
+      List<int> firmware = await file.readAsBytes();
+      _log('Firmware size: ${firmware.length} bytes');
+
+      await performOtaUpdate(firmware);
+    } catch (e) {
+      _log('Error selecting firmware: $e');
+    }
+  }
+
+  String _formatDeviceName(BluetoothDevice device) {
+    if (device.platformName.isEmpty) {
+      // Format MAC address with colons for better readability
+      String mac = device.remoteId.toString();
+      return 'ESP32 ($mac)';
+    }
+    return device.platformName;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('ESP32 BLE OTA'),
+        title: const Text('BonicBot OTA Update'),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
@@ -460,21 +704,65 @@ class _HomePageState extends State<HomePage> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            Text('Status: $status',
-                style: Theme.of(context).textTheme.titleMedium),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Text(
+                        status,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
             const SizedBox(height: 16),
             if (!_permissionsGranted)
-              ElevatedButton(
+              ElevatedButton.icon(
                 onPressed: _checkPermissions,
-                child: const Text('Grant Permissions'),
+                icon: const Icon(Icons.security),
+                label: const Text('Grant Permissions'),
               ),
             if (_permissionsGranted) ...[
               if (uploadProgress > 0)
-                LinearProgressIndicator(value: uploadProgress),
+                Column(
+                  children: [
+                    LinearProgressIndicator(value: uploadProgress),
+                    const SizedBox(height: 8),
+                    Text(
+                      '${(uploadProgress * 100).toStringAsFixed(1)}%',
+                      style: Theme.of(context).textTheme.bodyLarge,
+                    ),
+                  ],
+                ),
               const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: isScanning ? null : startScan,
-                child: Text(isScanning ? 'Scanning...' : 'Scan for Devices'),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: isScanning ? null : startScan,
+                      icon: const Icon(Icons.bluetooth_searching),
+                      label: Text(isScanning ? 'Scanning...' : 'Scan for Devices'),
+                    ),
+                  ),
+                  if (selectedDevice != null) ...[
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      onPressed: showReleasesDialog,
+                      icon: const Icon(Icons.system_update),
+                      label: const Text('Firmware Releases'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                        foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
+                      ),
+                    ),
+                  ],
+                ],
               ),
               const SizedBox(height: 16),
               Expanded(
@@ -482,24 +770,73 @@ class _HomePageState extends State<HomePage> {
                   itemCount: scanResults.length,
                   itemBuilder: (context, index) {
                     ScanResult result = scanResults[index];
-                    return ListTile(
-                      title: Text(result.device.platformName.isEmpty
-                          ? 'Unknown Device'
-                          : result.device.platformName),
-                      subtitle: Text(result.device.remoteId.toString()),
-                      trailing: ElevatedButton(
-                        onPressed: () => connectToDevice(result.device),
-                        child: const Text('Connect'),
+                    bool isSelected = selectedDevice?.remoteId == result.device.remoteId;
+                    
+                    return Card(
+                      elevation: isSelected ? 4 : 1,
+                      child: Padding(
+                        padding: const EdgeInsets.all(8.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            ListTile(
+                              leading: Icon(
+                                Icons.bluetooth,
+                                color: isSelected ? Theme.of(context).primaryColor : null,
+                              ),
+                              title: Text(_formatDeviceName(result.device)),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Signal: ${result.rssi} dBm'),
+                                  if (isSelected && currentVersion != "0.0.0")
+                                    Text(
+                                      'Firmware: $currentVersion',
+                                      style: const TextStyle(fontWeight: FontWeight.bold),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  ElevatedButton.icon(
+                                    onPressed: () => connectToDevice(result.device),
+                                    icon: Icon(isSelected ? Icons.link : Icons.link_outlined),
+                                    label: Text(isSelected ? 'Connected' : 'Connect'),
+                                  ),
+                                  if (isSelected) ...[
+                                    const SizedBox(width: 8),
+                                    ElevatedButton.icon(
+                                      onPressed: checkFirmwareVersion,
+                                      icon: const Icon(Icons.system_update),
+                                      label: const Text('Check Version'),
+                                    ),
+                                    if (updateAvailable) ...[
+                                      const SizedBox(width: 8),
+                                      ElevatedButton.icon(
+                                        onPressed: downloadAndUploadFirmware,
+                                        icon: const Icon(Icons.download),
+                                        label: const Text('Update'),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Theme.of(context).colorScheme.secondary,
+                                          foregroundColor: Theme.of(context).colorScheme.onSecondary,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     );
                   },
                 ),
               ),
-              if (selectedDevice != null)
-                ElevatedButton(
-                  onPressed: uploadFirmware,
-                  child: const Text('Select and Upload Firmware'),
-                ),
             ],
           ],
         ),

@@ -1,6 +1,8 @@
 name: flutter_ble_ota
-description: A Flutter app for OTA updates via BLE
+description: A new Flutter project.
+
 publish_to: 'none'
+
 version: 1.0.0+1
 
 environment:
@@ -11,14 +13,16 @@ dependencies:
     sdk: flutter
   flutter_blue_plus: ^1.35.5
   file_selector: ^1.0.3
-  path_provider: ^2.0.15
   permission_handler: ^11.3.0
+  http: ^1.2.0
+  version: ^3.0.2
+  path: ^1.8.3
   cupertino_icons: ^1.0.2
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^2.0.0
+  flutter_lints: ^3.0.1
 
 flutter:
   uses-material-design: true 
